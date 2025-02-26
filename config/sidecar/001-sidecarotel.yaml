@@ -14,7 +14,10 @@ spec:
             scrape_interval: 5s
             static_configs:
             - targets: ['0.0.0.0:8000']
-
+            #metric_relabel_configs:
+            #- source_labels: ['__name__']
+            #  regex: 'http_active_requests'
+            #  action: keep  # Only keep the 'http_active_requests' metric
     processors:
       resourcedetection/env:
         detectors: [env]
@@ -27,6 +30,12 @@ spec:
               - set(attributes["namespace"], resource.attributes["k8s.namespace.name"])
               - set(attributes["pod"], resource.attributes["k8s.pod.name"])
               - set(attributes["deployment"], resource.attributes["k8s.deployment.name"])
+      filter/metrics:
+        metrics:
+          include:
+            match_type: strict
+            metric_names:
+              - http_active_requests
     exporters:
       otlp/keda:
         endpoint: keda-otel-scaler.keda.svc:4317
@@ -43,5 +52,5 @@ spec:
       pipelines:
         metrics:
           receivers: [prometheus]
-          processors: [resourcedetection/env, transform]
+          processors: [filter/metrics, resourcedetection/env, transform]
           exporters: [debug, prometheus, otlp/keda]

@@ -39,6 +39,7 @@ helm install my-opentelemetry-operator open-telemetry/opentelemetry-operator -no
 ```
 
 # KEDA & KEDA OTel Scaler
+
 Install KEDA
 
 ```
