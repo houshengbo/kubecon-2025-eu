@@ -1,0 +1,17 @@
+{
+  "build_name": "ubuntu-2404",
+  "distribution": "ubuntu",
+  "distribution_release": "noble",
+  "distribution_version": "2404",
+  "source_image_family": "ubuntu-2404-lts-amd64",
+  "ssh_username": "ubuntu",
+  "zone": "us-central1-a",
+  "project_id": "kedify-initial",
+  "load_additional_components": "true",
+  "additional_registry_images": "true",
+  "additional_registry_images_list": "nvcr.io/nvidia/cloud-native/gpu-operator-validator:v24.9.2,nvcr.io/nvidia/cloud-native/k8s-mig-manager:v0.10.0-ubuntu20.04,nvcr.io/nvidia/cloud-native/k8s-driver-manager:v0.7.0,nvcr.io/nvidia/driver:550.144.03-ubuntu24.04,nvcr.io/nvidia/driver:550.144.03-ubuntu24.04,nvcr.io/nvidia/k8s-device-plugin:v0.17.0,nvcr.io/nvidia/k8s/container-toolkit:v1.17.4-ubuntu20.04,nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04,quay.io/cilium/cilium-envoy:v1.31.5-1741765102-efed3defcc70ab5b263a0fc44c93d316b846a211,quay.io/cilium/cilium:v1.17.2,registry.k8s.io/nfd/node-feature-discovery:v0.16.6,registry.k8s.io/kube-proxy:v1.31.4,nginx:1.14.2,kserve/huggingfaceserver:v0.15.0-rc1-gpu,registry.k8s.io/cloud-provider-gcp/gcp-compute-persistent-disk-csi-driver:v1.13.2,registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.3,registry.k8s.io/sig-storage/csi-resizer:v1.11.1,registry.k8s.io/sig-storage/csi-snapshotter:v6.3.3,registry.k8s.io/sig-storage/csi-attacher:v4.4.3,registry.k8s.io/sig-storage/csi-provisioner:v5.1.0,quay.io/brancz/kube-rbac-proxy:v0.18.0",
+  "extra_debs": "/tmp/nvidia-driver-local-repo-ubuntu2404-570.124.06_1.0-1_amd64.deb",
+  "additional_s3": "true",
+  "additional_s3_endpoint": "https://storage.cloud.google.com/kedify-nvidia-drivers/nvidia-driver-local-repo-ubuntu2404-570.124.06_1.0-1_amd64.deb",
+  "additional_s3_destination_path": "/tmp/"
+}

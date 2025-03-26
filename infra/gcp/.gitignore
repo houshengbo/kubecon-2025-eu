@@ -1,0 +1,10 @@
+.secret
+service-account.json
+cloud-sa.json
+*.kubeconfig
+
+# repos
+gcp-compute-persistent-disk-csi-driver
+csi-driver
+cluster-api-provider-gcp
+image-builder

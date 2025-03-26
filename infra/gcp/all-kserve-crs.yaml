@@ -1,0 +1,102 @@
+# kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.0/cert-manager.yaml
+# kubectl rollout status -ncert-manager deploy/cert-manager-webhook
+# helm upgrade -i kserve-crd oci://ghcr.io/kserve/charts/kserve-crd --version v0.15.0-rc1
+# helm upgrade -i kserve oci://ghcr.io/kserve/charts/kserve --version v0.15.0-rc1 --set kserve.controller.deploymentMode=RawDeployment
+# kubectl rollout status deploy/kserve-controller-manager
+# kubectl create secret generic hf-secret --from-literal=HF_TOKEN=${HF_TOKEN}
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: huggingface-llama3
+spec:
+  predictor:
+    maxReplicas: 100
+    minReplicas: 1
+    deploymentStrategy:
+      type: Recreate
+    model:
+      args:
+        # - --model=/mnt/models
+        # - --port=8080
+        # - --served-model-name=dsp.llama-3.1-70b-instruct
+        # - --load-format=safetensors
+        # - --dtype=auto
+        # - --kv-cache-dtype=auto
+        # - --guided-decoding-backend=outlines
+        # - --tensor-parallel-size=1
+        # - --gpu-memory-utilization=0.99
+        # - --max-num-batched-tokens=4096
+        # - --max-model-len=4096
+        # - --enable-auto-tool-choice
+        # - --tool-call-parser=llama3_json
+        # - --chat-template=/mnt/models/tool_chat_template_llama3.1_json.jinja
+        - --model_name=llama3
+        - --model_dir=/mnt/models
+        - --model_id=meta-llama/meta-llama-3-8b-instruct
+        - --load-format=safetensors
+        - --kv-cache-dtype=auto
+        - --tensor-parallel-size=1
+        - --enable-auto-tool-choice
+        - --tool-call-parser=llama3_json
+        - --max-num-batched-tokens=2048
+        - --max-model-len=2048
+        - --gpu-memory-utilization=0.99
+        - --dtype=float16
+      env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-secret
+              key: HF_TOKEN
+              optional: false
+      modelFormat:
+        name: huggingface
+      name: ""
+      resources:
+        limits:
+          cpu: "4"
+          memory: 16Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "4"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+      # runtime: vllm-openai
+      # runtimeVersion: v0.6.3
+    # volumes:
+    # - name: "modelvolume"
+    #   persistentVolumeClaim:
+
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterServingRuntime
+metadata:
+  name: vllm-openai
+spec:
+  annotations:
+    prometheus.kserve.io/path: /metrics
+    prometheus.kserve.io/port: "8080"
+  containers:
+  - args:
+    - --model
+    - /mnt/models
+    - --port
+    - "8080"
+    - --served-model-name
+    - '{{.Name}}'
+    image: docker.io/vllm/vllm-openai:v0.6.4
+    name: kserve-container
+    ports:
+    - containerPort: 8080
+      protocol: TCP
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 1
+        memory: 2Gi
+  supportedModelFormats:
+  - autoSelect: false
+    name: huggingface
+    priority: 2

@@ -1,0 +1,26 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: podinfo-pull-example
+spec:
+  scaleTargetRef:
+    apiVersion: cluster.x-k8s.io/v1beta1
+    kind: MachineDeployment
+    name: gpu-cluster-gpu-nodes
+  triggers:
+    - type: external
+      metadata:
+        scalerAddress: "keda-otel-scaler.keda.svc:4318"
+        metricQuery: "avg(http_request_duration_seconds_count{path=delay, method=GET, status=200})"
+        operationOverTime: "rate"
+        targetValue: "10"
+        clampMax: "600"
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600
+        scaleUp:
+          stabilizationWindowSeconds: 30

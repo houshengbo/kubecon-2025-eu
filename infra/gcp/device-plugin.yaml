@@ -1,0 +1,328 @@
+apiVersion: addons.cluster.x-k8s.io/v1beta1
+kind: ClusterResourceSet
+metadata:
+  name: nvidia-gpu-device-plugin
+  namespace: default
+spec:
+  clusterSelector:
+    matchLabels:
+      devicePlugin: nvidia
+  resources:
+    - kind: ConfigMap
+      name: nvidia-gpu-device-plugin
+  strategy: ApplyOnce
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-gpu-device-plugin
+  namespace: default
+data:
+  device-plugin.yaml: |
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      labels:
+        addonmanager.kubernetes.io/mode: Reconcile
+        k8s-app: nvidia-gpu-device-plugin
+      name: nvidia-gpu-device-plugin-small-ubuntu
+      namespace: kube-system
+    spec:
+      revisionHistoryLimit: 10
+      selector:
+        matchLabels:
+          k8s-app: nvidia-gpu-device-plugin
+      template:
+        metadata:
+          annotations:
+            components.gke.io/component-name: gpu-device-plugin
+            components.gke.io/component-version: 1.31.0-gke.1
+          labels:
+            k8s-app: nvidia-gpu-device-plugin
+        spec:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  # - key: cloud.google.com/gke-accelerator
+                  #   operator: Exists
+                  # - key: gke-no-default-nvidia-gpu-device-plugin
+                  #   operator: NotIn
+                  #   values:
+                  #   - "true"
+                  # - key: cloud.google.com/gke-cpu-scaling-level
+                  #   operator: Lt
+                  #   values:
+                  #   - "16"
+                  - key: nvidia.com/gpu.present
+                    operator: In
+                    values:
+                    - "true"
+          automountServiceAccountToken: false
+          containers:
+          - command:
+            - /usr/bin/nvidia-gpu-device-plugin
+            - -logtostderr
+            - --enable-container-gpu-metrics
+            - --enable-health-monitoring
+            env:
+            - name: XID_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  key: HealthCriticalXid
+                  name: xid-config
+                  optional: true
+            - name: LD_LIBRARY_PATH
+              value: /usr/local/nvidia/lib64
+            - name: GOMAXPROCS
+              value: "1"
+            image: gke.gcr.io/nvidia-gpu-device-plugin:1.31.0-gke.0@sha256:8bbd2bffa16a4ea1cf3eb1cf536eb18ea19e54aa899936a1ac4a079dbafc607b
+            imagePullPolicy: IfNotPresent
+            name: nvidia-gpu-device-plugin
+            ports:
+            - containerPort: 2112
+              name: prometheus
+              protocol: TCP
+            resources:
+              limits:
+                memory: 50Mi
+              requests:
+                cpu: 50m
+                memory: 50Mi
+            securityContext:
+              privileged: true
+              readOnlyRootFilesystem: true
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /device-plugin
+              name: device-plugin
+            - mountPath: /dev
+              name: dev
+            - mountPath: /usr/local
+              name: kubernetes-bin
+            - mountPath: /var/lib/kubelet/pod-resources
+              name: pod-resources
+            - mountPath: /proc
+              name: proc
+            - mountPath: /etc/nvidia
+              name: nvidia-config
+            - mountPath: /opt
+              name: opt
+            - mountPath: /tmp/nvidia-mps
+              name: mps
+          - env:
+            - name: GOMAXPROCS
+              value: "2"
+            - name: COLLECTOR_CONFIG_PATH
+              value: /conf/nvidia-metrics-collector-config-data.textproto
+            - name: SPLIT_GAUGE_BUFFER
+              value: "true"
+            - name: PROJECT_NUMBER
+              value: "828231651614"
+            - name: LOCATION
+              value: us-east4-a
+            - name: CLUSTER_NAME
+              value: use-cases-single-gpu-node
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: CONTAINER_NAME
+              value: nvidia-metrics-collector
+            - name: COMPONENT_VERSION
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.annotations['components.gke.io/component-version']
+            - name: COMPONENT_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.annotations['components.gke.io/component-name']
+            image: gke.gcr.io/gke-metrics-collector:20250126_2300_RC0@sha256:f6800ad0fa4cb22cde9e185ccf0723a6b1cd237eeb33d4cbcd67e9a46779f91a
+            imagePullPolicy: IfNotPresent
+            name: nvidia-metrics-collector
+            resources:
+              limits:
+                cpu: "1"
+                memory: 30Mi
+              requests:
+                cpu: 5m
+                memory: 30Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - all
+              readOnlyRootFilesystem: true
+              runAsGroup: 1000
+              runAsNonRoot: true
+              runAsUser: 1000
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /conf
+              name: nvidia-metrics-collector-config-map-vol
+          dnsPolicy: ClusterFirst
+          hostNetwork: true
+          hostPID: true
+          initContainers:
+          - command:
+            - bash
+            - -c
+            - |
+              LABELS=$( curl --retry 5 -H "Metadata-Flavor:Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/kube-labels || exit 1 )
+              IFS=,; for label in $LABELS; do
+                IFS==; read -r LABEL VALUE <<< "$label"
+                if [[ "${LABEL}" == "cloud.google.com/gke-gpu-driver-version" ]]; then
+                  GPU_DRIVER_VERSION=$VALUE
+                fi
+              done
+              if [[ "${GPU_DRIVER_VERSION}" == "default" ]]; then
+                echo "default" > /etc/nvidia/gpu_driver_version_config.txt
+                /usr/local/bin/ubuntu-nvidia-install
+              else
+                echo "disabled" > /etc/nvidia/gpu_driver_version_config.txt
+                echo "GPU driver auto installation is disabled."
+              fi
+              echo "Waiting for GPU driver libraries to be available."
+              while ! [[ -f /driver/home/kubernetes/bin/nvidia/lib64/libcuda.so ]]; do
+                sleep 5
+              done
+              echo "GPU driver is installed"
+              echo "InitContainer succeeded. Start nvidia-gpu-device-plugin container."
+              exit 0
+            image: gke-nvidia-installer:fixed
+            imagePullPolicy: IfNotPresent
+            name: nvidia-driver-installer
+            resources:
+              requests:
+                cpu: 150m
+            securityContext:
+              privileged: true
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /boot
+              name: boot
+            - mountPath: /dev
+              name: dev
+            - mountPath: /root
+              name: root-mount
+            - mountPath: /driver/home/kubernetes/bin
+              name: kubernetes-bin
+            - mountPath: /etc/nvidia
+              name: nvidia-config
+          - command:
+            - bash
+            - -c
+            - |
+              GPU_DRIVER_VERSION=$( cat /etc/nvidia/gpu_driver_version_config.txt )
+              if [ "${GPU_DRIVER_VERSION}" = "disabled" ]; then
+                exit 0
+              else
+                /usr/bin/gpu_partitioner -logtostderr
+              fi
+            env:
+            - name: LD_LIBRARY_PATH
+              value: /usr/local/nvidia/lib64
+            image: gke.gcr.io/nvidia-partition-gpu:1.31.0-gke.0@sha256:0f33d3c30ceafb6cc1d6eb2321a84b3b858aeac3725978cdcf69c3116a56d332
+            imagePullPolicy: IfNotPresent
+            name: partition-gpus
+            resources:
+              requests:
+                cpu: 150m
+            securityContext:
+              privileged: true
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /usr/local
+              name: kubernetes-bin
+            - mountPath: /dev
+              name: dev
+            - mountPath: /etc/nvidia
+              name: nvidia-config
+            - mountPath: /opt
+              name: opt
+          priorityClassName: system-node-critical
+          restartPolicy: Always
+          schedulerName: default-scheduler
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          terminationGracePeriodSeconds: 30
+          tolerations:
+          - effect: NoExecute
+            operator: Exists
+          - effect: NoSchedule
+            operator: Exists
+          - key: components.gke.io/gke-managed-components
+            operator: Exists
+          volumes:
+          - hostPath:
+              path: /var/lib/kubelet/device-plugins
+              type: Directory
+            name: device-plugin
+          - hostPath:
+              path: /dev
+              type: Directory
+            name: dev
+          - hostPath:
+              path: /var/lib/kubelet/pod-resources
+              type: Directory
+            name: pod-resources
+          - hostPath:
+              path: /proc
+              type: Directory
+            name: proc
+          - hostPath:
+              path: /etc/nvidia
+              type: DirectoryOrCreate
+            name: nvidia-config
+          - hostPath:
+              path: /tmp/nvidia-mps
+              type: DirectoryOrCreate
+            name: mps
+          - hostPath:
+              path: /home/kubernetes/bin
+              type: Directory
+            name: kubernetes-bin
+          - hostPath:
+              path: /
+              type: Directory
+            name: root-mount
+          - hostPath:
+              path: /opt
+              type: Directory
+            name: opt
+          - configMap:
+              defaultMode: 420
+              items:
+              - key: gpu-device-plugin-metrics-collector-config-data
+                path: nvidia-metrics-collector-config-data.textproto
+              name: nvidia-metrics-collector-config-map
+            name: nvidia-metrics-collector-config-map-vol
+          - hostPath:
+              path: /boot
+              type: Directory
+            name: boot
+      updateStrategy:
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
+        type: RollingUpdate

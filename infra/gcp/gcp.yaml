@@ -1,0 +1,296 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: default
+  labels:
+    cni: cilium
+    ccm: external
+    csi: "true"
+    # devicePlugin: nvidia
+    gpuOperator: "true"
+    metricsServer: "true"
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 192.168.0.0/16
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: ${CLUSTER_NAME}-control-plane
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: GCPCluster
+    name: ${CLUSTER_NAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: GCPCluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: default
+spec:
+  network:
+    name: default
+  project: ${GCP_PROJECT}
+  region: ${GCP_REGION}
+  failureDomains: 
+  - ${GCP_ZONE}
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlane
+metadata:
+  name: ${CLUSTER_NAME}-control-plane
+  namespace: default
+spec:
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      apiServer:
+        extraArgs:
+          cloud-provider: external
+        # for k8s < 1.31
+        #   feature-gates: DisableCloudProviders=false,DisableKubeletCloudCredentialProviders=false
+        timeoutForControlPlane: 20m
+      controllerManager:
+        extraArgs:
+          allocate-node-cidrs: "false"
+          cloud-provider: external
+          # feature-gates: DisableCloudProviders=false,DisableKubeletCloudCredentialProviders=false
+    initConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+        #   feature-gates: DisableCloudProviders=false,DisableKubeletCloudCredentialProviders=false
+        name: '{{ ds.meta_data.local_hostname.split(".")[0] }}'
+    joinConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+        #   feature-gates: DisableCloudProviders=false,DisableKubeletCloudCredentialProviders=false
+        name: '{{ ds.meta_data.local_hostname.split(".")[0] }}'
+    files:
+    - path: /etc/kubernetes/gce.conf
+      permissions: "0600"
+      encoding: base64
+      # ccat ./gce.conf | base64
+      content: |
+        W0dsb2JhbF0KbXVsdGl6b25lPXRydWUK
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: GCPMachineTemplate
+      name: ${CLUSTER_NAME}-control-plane
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT}
+  version: ${KUBERNETES_VERSION}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: GCPMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-control-plane
+  namespace: default
+spec:
+  template:
+    spec:
+      # imageFamily: ubuntu-accelerator-2204-amd64-with-nvidia-570
+      image: "${IMAGE_ID}"
+      instanceType: ${GCP_CONTROL_PLANE_MACHINE_TYPE}
+      # provisioningModel: Spot
+---
+# cpu nodes
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: ${CLUSTER_NAME}-cpu-nodes
+  namespace: default
+spec:
+  clusterName: ${CLUSTER_NAME}
+  replicas: ${CPU_NODE_MACHINE_COUNT}
+  selector:
+    matchLabels: null
+  template:
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: ${CLUSTER_NAME}-cpu-nodes
+      clusterName: ${CLUSTER_NAME}
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: GCPMachineTemplate
+        name: ${CLUSTER_NAME}-cpu-nodes
+      version: ${KUBERNETES_VERSION}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: GCPMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-cpu-nodes
+  namespace: default
+spec:
+  template:
+    spec:
+      # imageFamily: ubuntu-accelerator-2204-amd64-with-nvidia-570
+      image: "${IMAGE_ID}"
+      instanceType: ${GCP_CPU_NODE_MACHINE_TYPE}
+      # provisioningModel: Spot or Standard
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: ${CLUSTER_NAME}-cpu-nodes
+  namespace: default
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+          #   feature-gates: DisableCloudProviders=false,DisableKubeletCloudCredentialProviders=false
+          name: '{{ ds.meta_data.local_hostname.split(".")[0] }}'
+      files:
+      - path: /etc/kubernetes/gce.conf
+        permissions: "0600"
+        encoding: base64
+        # ccat ./gce.conf | base64
+        content: |
+          W0dsb2JhbF0KbXVsdGl6b25lPXRydWUK
+---
+# gpu nodes
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: ${CLUSTER_NAME}-gpu-nodes
+  namespace: default
+spec:
+  clusterName: ${CLUSTER_NAME}
+  replicas: ${GPU_NODE_MACHINE_COUNT}
+  selector:
+    matchLabels: null
+  template:
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: ${CLUSTER_NAME}-gpu-nodes
+      clusterName: ${CLUSTER_NAME}
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: GCPMachineTemplate
+        name: ${CLUSTER_NAME}-gpu-nodes
+      version: ${KUBERNETES_VERSION}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: GCPMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-gpu-nodes
+  namespace: default
+spec:
+  template:
+    spec:
+      # imageFamily: ubuntu-accelerator-2204-amd64-with-nvidia-570
+      image: "${IMAGE_ID}"
+      instanceType: ${GCP_GPU_NODE_MACHINE_TYPE}
+      # size of the root volume in GB (default 30)
+      rootDeviceSize: 150
+      provisioningModel: Standard
+      guestAccelerators:
+      - type: ${GPU_ID}
+        count: 1
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: ${CLUSTER_NAME}-gpu-nodes
+  namespace: default
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+            node-labels: nvidia.com/gpu.present=true
+          #   feature-gates: DisableCloudProviders=false,DisableKubeletCloudCredentialProviders=false
+          name: '{{ ds.meta_data.local_hostname.split(".")[0] }}'
+      files:
+      - path: /etc/kubernetes/gce.conf
+        permissions: "0600"
+        encoding: base64
+        # ccat ./gce.conf | base64
+        content: |
+          W0dsb2JhbF0KbXVsdGl6b25lPXRydWUK
+---
+# helm install cilium cilium/cilium --version 1.17.2 --namespace kube-system --set ipam.mode=kubernetes
+apiVersion: addons.cluster.x-k8s.io/v1alpha1
+kind: HelmChartProxy
+metadata:
+  name: cilium
+  namespace: default
+spec:
+  clusterSelector:
+    matchLabels:
+      cni: cilium
+  repoURL: https://helm.cilium.io/
+  chartName: cilium
+  releaseName: cilium
+  namespace: kube-system
+  version: 1.17.2
+  valuesTemplate: |
+    ipam:
+      mode: kubernetes
+#---
+# helm repo add nvdp https://nvidia.github.io/k8s-device-plugin
+# helm upgrade -i nvdp nvdp/nvidia-device-plugin --namespace default --create-namespace --version 0.17.1
+# apiVersion: addons.cluster.x-k8s.io/v1alpha1
+# kind: HelmChartProxy
+# metadata:
+#   name: nvdp
+#   namespace: default
+# spec:
+#   clusterSelector:
+#     matchLabels:
+#       devicePlugin: nvidia
+#   repoURL: https://nvidia.github.io/k8s-device-plugin/
+#   chartName: nvidia-device-plugin
+#   releaseName: nvdp
+#   namespace: nvidia-device-plugin
+#   version: 0.17.1
+---
+# helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+# helm upgrade -i gpu-operator -n gpu-operator --create-namespace nvidia/gpu-operator
+apiVersion: addons.cluster.x-k8s.io/v1alpha1
+kind: HelmChartProxy
+metadata:
+  name: gpu-operator
+  namespace: default
+spec:
+  clusterSelector:
+    matchLabels:
+      gpuOperator: "true"
+  repoURL: https://helm.ngc.nvidia.com/nvidia/
+  chartName: gpu-operator
+  releaseName: gpu-operator
+  namespace: gpu-operator
+  version: v24.9.2
+---
+# helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+# helm upgrade -i metrics-server metrics-server/metrics-server -n kube-system --set args={--kubelet-insecure-tls}
+apiVersion: addons.cluster.x-k8s.io/v1alpha1
+kind: HelmChartProxy
+metadata:
+  name: metrics-server
+  namespace: default
+spec:
+  clusterSelector:
+    matchLabels:
+      metricsServer: "true"
+  repoURL: https://kubernetes-sigs.github.io/metrics-server/
+  chartName: metrics-server
+  releaseName: metrics-server
+  namespace: kube-system
+  version: 3.12.2
+  valuesTemplate: |
+    args:
+    - --kubelet-insecure-tls
